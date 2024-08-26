@@ -24,6 +24,7 @@ struct SipClientEvent
         CALL_CANCELLED,
         CALL_END,
         BUTTON_PRESS,
+        HANDLE_INVITE,
     };
 
     enum class CancelReason

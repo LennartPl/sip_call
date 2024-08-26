@@ -42,6 +42,9 @@ struct SipEventHandlerButton
         case SipClientEvent::Event::CALL_END:
             m_button_input_handler.call_end();
             break;
+        case SipClientEvent::Event::HANDLE_INVITE:
+            m_button_input_handler.receive_call();
+            break;
         case SipClientEvent::Event::CALL_START:
         case SipClientEvent::Event::BUTTON_PRESS:
             break;

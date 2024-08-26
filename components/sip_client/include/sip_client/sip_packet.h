@@ -20,6 +20,8 @@
 #include <array>
 #include <cstring>
 
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+
 class SipPacket
 {
 public:
@@ -58,7 +60,62 @@ public:
     SipPacket(char* input_buffer, size_t input_buffer_length)
         : m_buffer(input_buffer)
         , m_buffer_length(input_buffer_length)
+        , m_is_copy(false)
     {
+    }
+
+    SipPacket(SipPacket& other) :
+        m_buffer(nullptr),
+        m_buffer_length(other.m_buffer_length),
+        m_status(other.m_status),
+        m_method(other.m_method),
+        m_content_type(other.m_content_type),
+        m_content_length(other.m_content_length),
+        m_realm(other.m_realm),
+        m_nonce(other.m_nonce),
+        m_contact(other.m_contact),
+        m_contact_expires(other.m_contact_expires),
+        m_to_tag(other.m_to_tag),
+        m_cseq(other.m_cseq),
+        m_call_id(other.m_call_id),
+        m_to(other.m_to),
+        m_from(other.m_from),
+        m_via(other.m_via),
+        m_record_route(other.m_record_route),
+        m_p_called_party_id(other.m_p_called_party_id),
+        m_media(other.m_media),
+        m_cip(other.m_cip),
+        m_dtmf_duration(other.m_dtmf_duration),
+        m_dtmf_signal(other.m_dtmf_signal),
+        m_is_copy(true)
+    {
+        // Allocate new buffer for copied data
+        if (m_buffer_length > 0) 
+        {
+            m_buffer = new char[m_buffer_length];
+            memcpy(m_buffer, other.m_buffer, m_buffer_length);
+        }
+        // Allocate new buffer for potentially existing body
+        if (other.m_body != nullptr)
+        {
+            size_t body_length = strlen(other.m_body);
+            m_body = new char[body_length + 1]; // +1 for null termination
+            memcpy(m_body, other.m_body, body_length);
+            m_body[body_length] = '\0';
+        }
+    }
+
+    ~SipPacket() 
+    {
+        // Free allocated memory if buffer is not from socket
+        if(m_is_copy)
+        {
+            if(m_buffer)
+                delete[] m_buffer;
+            if(m_body)
+                delete[] m_body;
+        }
+
     }
 
     bool parse()
@@ -546,6 +603,8 @@ private:
 
     uint16_t m_dtmf_duration {};
     char m_dtmf_signal {};
+
+    bool m_is_copy;
 
     static constexpr const char* LINE_ENDING = "\r\n";
     static constexpr size_t LINE_ENDING_LEN = 2;

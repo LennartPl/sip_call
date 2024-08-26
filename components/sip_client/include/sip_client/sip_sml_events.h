@@ -41,11 +41,16 @@ struct ev_request_call
     const std::string local_number;
     const std::string caller_display;
 };
-struct ev_cancel_call
+struct ev_hangup_call
 {
 };
 
 struct ev_rx_invite
+{
+    const std::string remote_number;
+};
+
+struct ev_answer_call
 {
 };
 

@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 
 #include "esp_log.h"
 #include "sip_client_event.h"
@@ -41,6 +42,8 @@ struct SipEventHandlerLog
         case SipClientEvent::Event::BUTTON_PRESS:
             ESP_LOGI(TAG, "Got button press: %c for %d milliseconds", event.button_signal, event.button_duration);
             break;
+        case SipClientEvent::Event::HANDLE_INVITE:
+            ESP_LOGI(TAG, "Got invite");
         }
     };
 

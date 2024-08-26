@@ -424,6 +424,9 @@ private:
             data += event.button_signal;
             data += "\",\"duration\":" + std::to_string(event.button_duration);
             break;
+        case SipClientEvent::Event::HANDLE_INVITE:
+            data += "Handle invite\"";
+            break;
         }
 
         data += ",\"min_free_heap\": " + std::to_string(esp_get_minimum_free_heap_size());

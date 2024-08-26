@@ -59,6 +59,10 @@ struct sip_states
             sip.cancel_call(event);
         };
 
+        const auto action_bye_call = [](SipClientT& sip, const auto& event) {
+            sip.bye_call(event);
+        };
+
         const auto action_rx_invite = [](SipClientT& sip, const auto& event) {
             sip.handle_invite(event);
         };
@@ -97,10 +101,11 @@ struct sip_states
             "registered"_s + event<ev_reregister> / action_register_unauth = "waiting_for_auth_reply"_s,
             "registered"_s + event<ev_request_call> / action_request_call = "registered"_s,
             "registered"_s + event<ev_initiate_call> / action_send_invite = "calling"_s,
-            "registered"_s + event<ev_rx_invite> / action_rx_invite = "call_established"_s,
+            "registered"_s + event<ev_rx_invite> / action_rx_invite = "waiting_for_call_answer"_s,
+            "waiting_for_call_answer"_s + event<ev_answer_call> / action_call_established = "call_established"_s,
             "registered"_s + event<ev_start> / action_register_unauth = "waiting_for_auth_reply"_s,
             "calling"_s + event<ev_401_unauthorized> / action_send_invite = "calling"_s,
-            "calling"_s + event<ev_cancel_call> / action_cancel_call = "cancelling"_s,
+            "calling"_s + event<ev_hangup_call> / action_cancel_call = "cancelling"_s,
             "calling"_s + event<ev_183_session_progress> = "calling"_s,
             "calling"_s + event<ev_100_trying> = "calling"_s,
             "calling"_s + event<ev_200_ok> / action_call_established = "call_established"_s,
@@ -113,7 +118,8 @@ struct sip_states
             "call_established"_s + event<ev_200_ok> = X,
             "call_established"_s + event<ev_reregister> / action_retry_reregistered = "call_established"_s,
             "call_established"_s + event<ev_start> / action_register_unauth = "waiting_for_auth_reply"_s,
-            "cancelling"_s + event<ev_200_ok> = "cancelling"_s,
+            "call_established"_s + event<ev_hangup_call> / action_bye_call = "cancelling"_s,
+            "cancelling"_s + event<ev_200_ok> = "registered"_s,
             "cancelling"_s + event<ev_487_request_cancelled> / action_call_cancelled = "registered"_s,
             "calling"_s + event<ev_200_ok> = X);
     }

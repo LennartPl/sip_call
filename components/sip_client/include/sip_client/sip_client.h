@@ -16,6 +16,8 @@
 
 #pragma once
 
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+
 #include "sip_client_internal.h"
 #include "sip_sml_events.h"
 #include "sip_sml_logger.h"
@@ -89,9 +91,14 @@ public:
         m_sip.request_ring(local_number, caller_display);
     }
 
-    void request_cancel()
+    void request_hangup()
     {
-        m_sip.request_cancel();
+        m_sip.request_hangup();
+    }
+
+    void establish_call()
+    {
+        m_sip.answer_call();
     }
 
     void deinit()

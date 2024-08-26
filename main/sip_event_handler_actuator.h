@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 
 template <gpio_num_t GPIO_PIN, bool ACTIVE_HIGH, int SWITCHING_DURATION_TIMEOUT_MSEC, char ACTUATOR_PHONE_BUTTON>
 class SipEventHandlerActuator
@@ -67,6 +68,7 @@ public:
         case SipClientEvent::Event::CALL_CANCELLED:
         case SipClientEvent::Event::CALL_END:
         case SipClientEvent::Event::CALL_START:
+        case SipClientEvent::Event::HANDLE_INVITE:
             break;
         case SipClientEvent::Event::BUTTON_PRESS:
             if (event.button_signal == ACTUATOR_PHONE_BUTTON)

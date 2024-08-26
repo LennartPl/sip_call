@@ -15,6 +15,7 @@
  */
 
 #pragma once
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 
 #include "freertos/FreeRTOS.h"
 #include <freertos/queue.h>
@@ -47,7 +48,7 @@ struct dependencies
         };
 
         const auto action_cancel = [](SipClientT& d, const auto& event) {
-            d.request_cancel();
+            d.request_hangup();
         };
 
         return make_transition_table(
@@ -118,6 +119,26 @@ public:
         Event event = Event::CALL_END;
         // don't wait if the queue is full
         xQueueSend(m_queue, &event, (TickType_t)0);
+    }
+
+    void receive_call()
+    {
+        ESP_LOGI("button_handler", "receive_call() called in button_handler.h");
+        
+        for(int i=10; i > 0; i--)
+        {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            ESP_LOGI("button_handler", "Waiting %u seconds until testcall.", i);
+        }
+        m_client.establish_call();
+
+
+        for(int i=10; i > 0; i--)
+        {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            ESP_LOGI("button_handler", "Waiting %u seconds until testcall.", i);
+        }
+        m_client.request_hangup();
     }
 
 private:

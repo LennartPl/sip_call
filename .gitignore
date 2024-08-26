@@ -3,3 +3,6 @@ managed_componenets/
 sdkconfig.old
 sdkconfig
 compile_commands.json
+/managed_components
+/.vscode
+*.log

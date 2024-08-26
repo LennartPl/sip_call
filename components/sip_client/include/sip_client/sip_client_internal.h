@@ -17,6 +17,7 @@
 #pragma once
 
 #include <utility>
+#include "esp_log.h"
 
 #include "sip_client_event.h"
 #include "sip_packet.h"
@@ -45,8 +46,9 @@ public:
         , m_my_ip(std::move(my_ip))
         , m_uri("sip:" + server_ip)
         , m_to_uri("sip:" + user + "@" + server_ip)
+        , m_packet(nullptr)
         , m_sip_sequence_number(std::rand() % 2147483647)
-        , m_call_id(std::rand() % 2147483647)
+        , m_call_id(std::to_string(std::rand() % 2147483647))
         , m_tag(std::rand() % 2147483647)
         , m_branch(std::rand() % 2147483647)
         , m_caller_display(m_user)
@@ -120,11 +122,11 @@ public:
         });
     }
 
-    void request_cancel()
+    void request_hangup()
     {
         asio::dispatch(m_io_context, [this]() {
-            ESP_LOGI(TAG, "Request to CANCEL call");
-            this->m_sm.process_event(ev_cancel_call {});
+            ESP_LOGI(TAG, "Request to hangup call");
+            this->m_sm.process_event(ev_hangup_call {});
         });
     }
 
@@ -179,8 +181,10 @@ public:
         m_proxy_auth = false;
         m_response = "";
         ESP_LOGI(TAG, "OK :)");
-        m_uri = "sip:**613@" + m_server_ip;
-        m_to_uri = "sip:**613@" + m_server_ip;
+        //m_uri = "sip:**613@" + m_server_ip;
+        //m_to_uri = "sip:**613@" + m_server_ip;
+        m_uri = "sip:" + m_server_ip;
+        m_to_uri = "sip:" + m_user + "@" + m_server_ip;
     }
 
     void send_invite(const ev_401_unauthorized& /*unused*/)
@@ -208,36 +212,52 @@ public:
     void request_call(const ev_request_call& event)
     {
         ESP_LOGI(TAG, "Request to call %s...", event.local_number.c_str());
-        m_call_id = std::rand() % 2147483647;
+        m_call_id = std::to_string(std::rand() % 2147483647);
         m_uri = "sip:" + event.local_number + "@" + m_server_ip;
         m_to_uri = "sip:" + event.local_number + "@" + m_server_ip;
         m_caller_display = event.caller_display;
         m_sm.process_event(ev_initiate_call {});
     }
 
-    void cancel_call(const ev_cancel_call& /*unused*/)
+    void cancel_call(const ev_hangup_call& /*unused*/)
     {
         ESP_LOGD(TAG, "Sending cancel request");
         send_sip_cancel();
-
-        // TODO: if call in progress, send bye
-        // ESP_LOGD(TAG, "Sending bye request");
-        // send_sip_bye();
     }
 
-    void handle_invite(const ev_rx_invite& /*unused*/)
+    void bye_call(const ev_hangup_call& /*unused*/)
     {
-        // received an invite, answered it already with ok, so new call is established, because someone called us
+        ESP_LOGD(TAG, "Sending bye request");
+        send_sip_bye();
+    }
+
+    void handle_invite(const ev_rx_invite& event)
+    {
+        // received an invite, indicate invite to handler
+        ESP_LOGD(TAG, "Received invite from '%s'.", event.remote_number.c_str());
+        //send_sip_ok();
         if (m_event_handler)
         {
-            m_event_handler(m_sip_client, SipClientEvent { SipClientEvent::Event::CALL_START });
+            m_event_handler(m_sip_client, SipClientEvent { SipClientEvent::Event::HANDLE_INVITE });
         }
+    }
+
+    void answer_call()
+    {
+        ESP_LOGD(TAG, "Answer call.");
+        //Add Event handler
+        m_sm.process_event(ev_answer_call {});
     }
 
     void call_established()
     {
+        ESP_LOGV(TAG, "Send OK to establish call");
         // ack to ok after invite
-        send_sip_ack();
+        std::string id = m_packet->get_call_id();
+        m_call_id = id.substr(0, id.find('@'));
+        m_sip_sequence_number = stoi(m_packet->get_cseq());
+
+        send_sip_ok(*m_packet);
         if (m_event_handler)
         {
             m_event_handler(m_sip_client, SipClientEvent { SipClientEvent::Event::CALL_START });
@@ -401,9 +421,16 @@ private:
         // But immediately pick up all other calls, also to **9 from other participants.
         if ((packet.get_method() == SipPacket::Method::INVITE) && (packet.get_from().rfind(m_caller_display + "\"", 1) != 1))
         {
-            ESP_LOGV(TAG, "Accept invite from : '%s'", packet.get_from().c_str());
-            send_sip_ok(packet);
-            m_sm.process_event(ev_rx_invite {});
+            ESP_LOGV(TAG, "Invite from : '%s'", packet.get_from().c_str());
+
+            send_sip_trying(packet);
+            send_sip_ringing(packet);
+
+            //save packet for later accepting the call
+            delete m_packet;
+            m_packet = new SipPacket(packet);
+
+            m_sm.process_event(ev_rx_invite { packet.get_from() });
         }
         else if (packet.get_method() == SipPacket::Method::INVITE)
         {
@@ -503,6 +530,44 @@ private:
         m_socket.send_buffered_data();
     }
 
+    void send_sip_bye()
+    {
+        m_sip_sequence_number++;
+        TxBufferT& tx_buffer = m_socket.get_new_tx_buf();
+
+        //parse to part from last received from
+        std::string from = m_packet->get_from();
+        std::size_t pos_tag = from.find(">;tag=");
+        std::size_t pos_sip = from.find("<sip:");
+
+        if (pos_tag != std::string::npos && from.length() > pos_tag)
+        {
+            m_to_tag = from.substr(pos_tag + 1, std::string::npos);
+        }
+        else
+        {
+            m_to_tag = std::string();
+        }
+        //m_to_tag = from.substr(from.find('>;tag=')+1, from.length());
+        
+        std::string from_address = std::string();
+        if(pos_sip != std::string::npos && pos_sip >= 3 && from.length() > (pos_tag - pos_sip - 2))
+        {
+            from_address = from.substr(pos_sip - 3, pos_tag - pos_sip - 2);
+        }
+        //std::string from_address = from.substr(from.find('<sip:')-3, from.find('>;tag=')-from.find('<sip:')-2);
+
+        //create sip header for BYE with swapped from/to from received packet
+        send_sip_header("BYE", m_to_contact, from_address, tx_buffer);
+
+        tx_buffer << "Contact: \"" << m_user << "\" <sip:" << m_user << "@" << m_my_ip << ":" << LOCAL_PORT << ";transport=" << TRANSPORT_LOWER << ">\r\n";
+
+        tx_buffer << "Content-Length: 0\r\n";
+        tx_buffer << "\r\n";
+
+        m_socket.send_buffered_data();
+    }
+
     void send_sip_ack()
     {
         TxBufferT& tx_buffer = m_socket.get_new_tx_buf();
@@ -546,6 +611,28 @@ private:
         m_socket.send_buffered_data();
     }
 
+    void send_sip_trying(const SipPacket& packet)
+    {
+        TxBufferT& tx_buffer = m_socket.get_new_tx_buf();
+
+        send_sip_reply_header("100 Trying", packet, tx_buffer);
+        tx_buffer << "Content-Length: 0\r\n";
+        tx_buffer << "\r\n";
+
+        m_socket.send_buffered_data();
+    }
+
+    void send_sip_ringing(const SipPacket& packet)
+    {
+        TxBufferT& tx_buffer = m_socket.get_new_tx_buf();
+
+        send_sip_reply_header("180 Ringing", packet, tx_buffer);
+        tx_buffer << "Content-Length: 0\r\n";
+        tx_buffer << "\r\n";
+
+        m_socket.send_buffered_data();
+    }    
+
     void send_sip_decline(const SipPacket& packet)
     {
         TxBufferT& tx_buffer = m_socket.get_new_tx_buf();
@@ -562,9 +649,16 @@ private:
         stream << command << " " << uri << " SIP/2.0\r\n";
 
         stream << "CSeq: " << m_sip_sequence_number << " " << command << "\r\n";
-        stream << "Call-ID: " << m_call_id << "@" << m_my_ip << "\r\n";
         stream << "Max-Forwards: 70\r\n";
         stream << "User-Agent: sip-client/0.0.1\r\n";
+        if (command == "BYE")
+        {
+            stream << "Call-ID: " << m_call_id << "@" << m_server_ip << "\r\n";
+        }
+        else
+        {
+            stream << "Call-ID: " << m_call_id << "@" << m_my_ip << "\r\n";
+        }
         if (command == "REGISTER")
         {
             stream << "From: <sip:" << m_user << "@" << m_server_ip << ">;tag=" << m_tag << "\r\n";
@@ -573,13 +667,17 @@ private:
         {
             stream << "From: \"" << m_caller_display << "\" <sip:" << m_user << "@" << m_server_ip << ">;tag=" << m_tag << "\r\n";
         }
+        else if (command == "BYE")
+        {
+            stream << "From: \"" << m_user << "\" <sip:" << m_user << "@" << m_my_ip << ">;tag=" << m_tag << "\r\n";
+        }
         else
         {
             stream << "From: \"" << m_user << "\" <sip:" << m_user << "@" << m_server_ip << ">;tag=" << m_tag << "\r\n";
         }
         stream << "Via: SIP/2.0/" << TRANSPORT_UPPER << " " << m_my_ip << ":" << LOCAL_PORT << ";branch=z9hG4bK-" << m_branch << ";rport\r\n";
 
-        if ((command == "ACK") && !m_to_tag.empty())
+        if (((command == "ACK") || command == "BYE") && !m_to_tag.empty())
         {
             stream << "To: <" << to_uri << ">;tag=" << m_to_tag << "\r\n";
         }
@@ -711,9 +809,10 @@ private:
     std::string m_to_tag;
 
     SipPacket::RecordRouteT m_record_route;
+    SipPacket* m_packet;
 
     uint32_t m_sip_sequence_number;
-    uint32_t m_call_id;
+    std::string m_call_id;
 
     // auth stuff
     std::string m_response;
